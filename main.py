@@ -13,28 +13,30 @@ def get_business_day() -> str:
 
 
 def pick_top10(date: str, market: str) -> pd.DataFrame:
-    ohlcv = stock.get_market_ohlcv_by_ticker(date, market=market)
-    val = stock.get_market_trading_value_by_ticker(date, market=market)
-
-    if ohlcv is None or ohlcv.empty or val is None or val.empty:
+    # ✅ 여기서 OHLCV를 가져오면, 보통 거래대금(거래대금/거래대금(원))이 같이 들어있음
+    df = stock.get_market_ohlcv_by_ticker(date, market=market)
+    if df is None or df.empty:
         return pd.DataFrame()
 
-    df = ohlcv.join(val, how="inner")
-
+    # 등락률 컬럼 확인
     if "등락률" not in df.columns:
         return pd.DataFrame()
 
-    if "거래대금" not in df.columns:
-        raise RuntimeError(f"{market}: 거래대금 컬럼 없음")
+    # 거래대금 컬럼명은 버전에 따라 다를 수 있어서 자동 탐색
+    value_candidates = ["거래대금", "거래대금(원)", "거래대금(백만)"]
+    value_col = next((c for c in value_candidates if c in df.columns), None)
+    if value_col is None:
+        raise RuntimeError(f"{market}: 거래대금 컬럼을 못 찾았어. columns={list(df.columns)}")
 
-    df["chg_pct"] = df["등락률"]
-    df = df[df["chg_pct"] >= 10].sort_values("거래대금", ascending=False).head(10)
+    # 10% 이상 필터 + 거래대금 TOP10
+    df = df[df["등락률"] >= 10].sort_values(value_col, ascending=False).head(10)
 
     if df.empty:
         return pd.DataFrame()
 
     df["종목명"] = [stock.get_market_ticker_name(t) for t in df.index]
     df = df.reset_index().rename(columns={"index": "티커"})
+    df = df.rename(columns={"등락률": "chg_pct", value_col: "거래대금"})
     return df[["티커", "종목명", "chg_pct", "거래대금", "종가"]]
 
 
